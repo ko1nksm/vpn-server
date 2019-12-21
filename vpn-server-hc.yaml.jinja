@@ -1,0 +1,111 @@
+{% set _ = dict(env, **properties) %}
+{% set DDCLIENT = "https://github.com/ddclient/ddclient/archive/v3.9.0.tar.gz" %}
+resources:
+- name: {{ _.name }}
+  type: compute.v1.instanceGroupManager
+  properties:
+    instanceTemplate: $(ref.{{ _.name }}-instance-template.selfLink)
+    zone: {{ _.zone }}
+    targetSize: 1
+    autoHealingPolicies:
+    - healthCheck: $(ref.{{ _.name }}-hc.selfLink)
+      initialDelaySec: 300
+- name: {{ _.name }}-instance-template
+  type: compute.v1.instanceTemplate
+  properties:
+    properties:
+      machineType: {{ _.machineType }}
+      canIpForward: true
+      disks:
+      - deviceName: boot
+        type: PERSISTENT
+        boot: true
+        autoDelete: true
+        initializeParams:
+          sourceImage: projects/debian-cloud/global/images/family/debian-9
+      networkInterfaces:
+      - network: &network $(ref.{{ _.name }}-network.selfLink)
+        accessConfigs:
+        - name: External NAT
+          type: ONE_TO_ONE_NAT
+          networkTier: {{ _.networkTier }}
+      metadata:
+        items:
+        - key: startup-script
+          value: {{ imports["startup-script.sh"] | tojson }}
+        - key: configuration-bucket
+          value: "{{ _.configurationBucket }}"
+        - key: edit-mode
+          value: "{{ _.editMode | lower }}"
+        - key: allow-status-page
+          value: "{{ _.allowStatusPage | lower }}"
+        - key: anti-robot-auth
+          value: "{{ _.antiRobotAuth or '*:*' }}"
+        - key: ddclient
+          value: "{{ _.ddclient or DDCLIENT }}"
+        - key: ddns-update-interval
+          value: "{{ _.ddnsUpdateInterval or '' }}"
+      serviceAccounts:
+        - email: default
+          scopes:
+            {% if _.editMode %}
+          - https://www.googleapis.com/auth/devstorage.full_control
+            {% else %}
+          - https://www.googleapis.com/auth/devstorage.read_only
+            {% endif %}
+          - https://www.googleapis.com/auth/logging.write
+          - https://www.googleapis.com/auth/monitoring.write
+- name: {{ _.name }}-hc
+  type: compute.v1.healthChecks
+  properties:
+    type: HTTP
+    httpHealthCheck:
+      port: 8080
+      requestPath: /
+    checkIntervalSec: 60
+    timeoutSec: 5
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+- name: {{ _.name }}-network
+  type: compute.v1.network
+  properties:
+    autoCreateSubnetworks: true
+- name: {{ _.name }}-icmp-fw
+  type: compute.v1.firewall
+  properties:
+    network: *network
+    allowed:
+      - IPProtocol: ICMP
+- name: {{ _.name }}-openvpn-fw
+  type: compute.v1.firewall
+  properties:
+    network: *network
+    allowed:
+      - IPProtocol: UDP
+        ports: ["1194"]
+- name: {{ _.name }}-healthcheck-fw
+  type: compute.v1.firewall
+  properties:
+    network: *network
+    sourceRanges: [ "130.211.0.0/22", "35.191.0.0/16" ]
+    allowed:
+      - IPProtocol: TCP
+        ports: [ "8080" ]
+{% if _.allowSSH %}
+- name: {{ _.name }}-ssh-fw
+  type: compute.v1.firewall
+  properties:
+    network: *network
+    allowed:
+      - IPProtocol: TCP
+        ports: [ "22" ]
+{% endif %}
+{% if _.allowStatusPage %}
+- name: {{ _.name }}-http-fw
+  type: compute.v1.firewall
+  properties:
+    network: *network
+    allowed:
+      - IPProtocol: TCP
+        ports: [ "80" ]
+{% endif %}
