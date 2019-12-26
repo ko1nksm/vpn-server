@@ -228,7 +228,7 @@ install -m 644 /dev/stdin /etc/logrotate.d/openvpn << 'HERE'
 HERE
 
 install -m 644 /dev/stdin /etc/logrotate.d/httpd << 'HERE'
-/var/log/access.log {
+/var/log/httpd.log {
   daily rotate 30
   missingok
   notifempty
